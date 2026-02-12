@@ -1,4 +1,6 @@
 ﻿using System;
+using System.Buffers;
+using System.IO.Pipelines;
 using System.Net.Http;
 using System.Threading.Tasks;
 
@@ -11,14 +13,69 @@ namespace Pipelines
             using var client = new HttpClient();
             await using var stream = await client.GetStreamAsync(uri);
 
-            // Calculate how many lines (end of line characters `\n`) are in the network stream
-            // To practice, use a pattern where you have the Pipe, Writer and Reader tasks
-            // Read about SequenceReader<T>, https://docs.microsoft.com/en-us/dotnet/api/system.buffers.sequencereader-1?view=netcore-3.1
-            // This struct h has a method that can be very useful for this scenario :)
+            var pipe = new Pipe();
+            var writing = FillPipeAsync(stream, pipe.Writer);
+            var reading = ReadPipeAsync(pipe.Reader);
 
-            // Good luck and have fun with pipelines!
+            await Task.WhenAll(writing, reading);
 
-            return 0;
+            return await reading;
+        }
+
+        private static async Task FillPipeAsync(System.IO.Stream stream, PipeWriter writer)
+        {
+            const int minimumBufferSize = 512;
+
+            while (true)
+            {
+                var memory = writer.GetMemory(minimumBufferSize);
+
+                int bytesRead = await stream.ReadAsync(memory);
+                if (bytesRead == 0)
+                    break;
+
+                writer.Advance(bytesRead);
+
+                var result = await writer.FlushAsync();
+                if (result.IsCompleted)
+                    break;
+            }
+
+            await writer.CompleteAsync();
+        }
+
+        private static async Task<int> ReadPipeAsync(PipeReader reader)
+        {
+            int lineCount = 0;
+
+            while (true)
+            {
+                var result = await reader.ReadAsync();
+                var buffer = result.Buffer;
+
+                lineCount += CountNewLines(buffer);
+
+                reader.AdvanceTo(buffer.End);
+
+                if (result.IsCompleted)
+                    break;
+            }
+
+            await reader.CompleteAsync();
+            return lineCount;
+        }
+
+        private static int CountNewLines(ReadOnlySequence<byte> buffer)
+        {
+            var reader = new SequenceReader<byte>(buffer);
+            int count = 0;
+
+            while (reader.TryAdvanceTo((byte)'\n'))
+            {
+                count++;
+            }
+
+            return count;
         }
     }
 }

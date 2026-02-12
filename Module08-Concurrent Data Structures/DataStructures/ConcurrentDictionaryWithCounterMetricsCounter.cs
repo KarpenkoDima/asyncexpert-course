@@ -1,4 +1,5 @@
 ﻿using System.Collections;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Threading;
 
@@ -6,17 +7,20 @@ namespace DataStructures
 {
     public class ConcurrentDictionaryWithCounterMetricsCounter : IMetricsCounter
     {
-        // Implement this class using ConcurrentDictionary and the provided AtomicCounter class.
-        // AtomicCounter should be created only once per key, then its Increment method should be used.
-        
+        private readonly ConcurrentDictionary<string, AtomicCounter> _dictionary = new ConcurrentDictionary<string, AtomicCounter>();
+
         public IEnumerator<KeyValuePair<string, int>> GetEnumerator()
         {
-            throw new System.NotImplementedException();
+            foreach (var kvp in _dictionary)
+            {
+                yield return new KeyValuePair<string, int>(kvp.Key, kvp.Value.Count);
+            }
         }
 
         public void Increment(string key)
         {
-            throw new System.NotImplementedException();
+            var counter = _dictionary.GetOrAdd(key, _ => new AtomicCounter());
+            counter.Increment();
         }
 
         IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
